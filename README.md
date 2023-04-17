@@ -1,1 +1,1 @@
-# prosthetic_swing_control
+## Gait-Simulating Prosthetic Arm Elbow
