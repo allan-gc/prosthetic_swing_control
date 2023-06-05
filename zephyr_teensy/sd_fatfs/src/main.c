@@ -3,6 +3,7 @@
  * Copyright (c) 2023 Nordic Semiconductor ASA
  *
  * SPDX-License-Identifier: Apache-2.0
+ * 
  */
 
 /* Sample which uses the filesystem API and SDHC driver */
@@ -100,39 +101,9 @@ static const char *disk_mount_pt = DISK_MOUNT_PT;
 
 int main(void)
 {
-	/* raw disk i/o */
 
 	usb_enable(NULL);
-	// printk("\n TEENSY Working");
-	// do {
-	// 	printk("\n TEENSY Working");
-	// 	static const char *disk_pdrv = DISK_DRIVE_NAME;
-	// 	uint64_t memory_size_mb;
-	// 	uint32_t block_count;
-	// 	uint32_t block_size;
-
-	// 	if (disk_access_init(disk_pdrv) != 0) {
-	// 		LOG_ERR("Storage init ERROR!");
-	// 		break;
-	// 	}
-
-	// 	if (disk_access_ioctl(disk_pdrv,
-	// 			DISK_IOCTL_GET_SECTOR_COUNT, &block_count)) {
-	// 		LOG_ERR("Unable to get sector count");
-	// 		break;
-	// 	}
-	// 	LOG_INF("Block count %u", block_count);
-
-	// 	if (disk_access_ioctl(disk_pdrv,
-	// 			DISK_IOCTL_GET_SECTOR_SIZE, &block_size)) {
-	// 		LOG_ERR("Unable to get sector size");
-	// 		break;
-	// 	}
-	// 	printk("Sector size %u\n", block_size);
-
-	// 	memory_size_mb = (uint64_t)block_count * block_size;
-	// 	printk("Memory Size(MB) %u\n", (uint32_t)(memory_size_mb >> 20));
-	// } while (0);
+	
 
 	mp.mnt_point = disk_mount_pt;
 
@@ -148,14 +119,7 @@ int main(void)
 	else{
 		printk("Could not create entries\n");
 	}
-	// if (res == FR_OK) {
-	// 	printk("Disk mounted.\n");
-	// 	if (lsdir(disk_mount_pt) == 0) {
-	// 	}
-	// } else {
-	// 	printk("Error mounting disk.\n");
-	// }
-	// k_sleep(K_SECONDS(1));
+	
 	}
 }
 

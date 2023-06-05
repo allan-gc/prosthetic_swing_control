@@ -75,10 +75,8 @@ static int process_mpu6050(const struct device *dev)
 
 void main(void)
 {
- 	// Get a device structure from a devicetree node with compatible
- 	// "sensirion,shtcx". 
 
-
+	
     usb_enable(NULL);
 
     int ret;
@@ -96,23 +94,7 @@ void main(void)
         printk("\nDevice %s is ready\n", dev->name);
     }
 
-	// if (dev == NULL) {
-	// 	printk("\nError: No devicetree node found for Sensirion SHTCx.\n");
-
-    //     // LOG_INF("\nError: No devicetree node found for Sensirion SHTCx.\n");
-    //     // LOG_MODULE_REGISTER(logging_blog);
-    //     // "Device %s is not ready\n", dev->name
-	// 	return;
-	// }
-
-	// if (!device_is_ready(dev)) {
-	// 	printk("Device %s is not ready\n", dev->name);
-    //     // LOG_INF("Device %s is not ready\n", dev->name);
-        
-	// 	return;
-	// }
-
-    // ret = gpio_pin_configure_dt(&led, GPIO_OUTPUT_ACTIVE);
+	
 
     while (!IS_ENABLED(CONFIG_MPU6050_TRIGGER)) {
 		int rc = process_mpu6050(dev);
