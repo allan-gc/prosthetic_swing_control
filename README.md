@@ -12,7 +12,7 @@ Then run the following command from within the ~/zephyrproject/zephyr directory 
 `west build -p auto -b teensy41 path_to_your_directory`
 
 ### To Flash
-Flashing with the west build system does not seem to work with the Teensy architectures. To flash, I have been using this [Teensy command line tool](https://github.com/PaulStoffregen/teensy_loader_cli). More about this issue can be found here.
+Flashing with the west build system does not seem to work with the Teensy architectures. To flash, I have been using this [Teensy command line tool](https://github.com/PaulStoffregen/teensy_loader_cli). More about this issue can be found [here](https://github.com/zephyrproject-rtos/zephyr/issues/30204).
 
 To flash, press the reset button on the Teensy 4.1. The run the following command line:  
 `./teensy_loader_cli --mcu=TEENSY41 -w ./path_to_zephyr_hex_file`. 
