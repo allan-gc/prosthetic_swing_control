@@ -1,0 +1,20 @@
+#include "ina_219.h"
+
+int process_ina219(const struct device *dev, struct ina_219_data *ina_sensor_data)
+{
+    int rc = sensor_sample_fetch(dev);
+    if (rc) {
+        printf("\nCould not fetch sensor data.\n");
+        return rc;
+    }
+
+    extern struct k_mutex ina_sensor_mutex; 
+
+    sensor_channel_get(dev, SENSOR_CHAN_VOLTAGE, &ina_sensor_data->vbus);
+    sensor_channel_get(dev, SENSOR_CHAN_POWER, &ina_sensor_data->power);
+    sensor_channel_get(dev, SENSOR_CHAN_CURRENT, &ina_sensor_data->current);
+
+    k_mutex_unlock(&ina_sensor_mutex);
+
+    return rc;
+}
