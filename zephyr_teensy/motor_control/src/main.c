@@ -1,4 +1,3 @@
-
 #include <zephyr/devicetree.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/drivers/gpio.h>
@@ -8,17 +7,38 @@
 #include <zephyr/usb/usbd.h>
 #include <zephyr/drivers/adc.h>
 #include <zephyr/sys/printk.h>
-
+#include <math.h>
 #include<string.h>
 #include "mpu_6050.h"
 #include "ina_219.h"
+#include "data_profile.h"
+
 
 #define STACKSIZE 1024
 #define PRIORITY 7
-// #define SPEED PWM_MSEC(23)
-#define SPEED PWM_KHZ(3)
+#define INA_WINDOW 1000
+#define SPEED PWM_KHZ(3)   // Sets period to 3kHz with 100% duty cycle being 333,333 ns. 
+#define WINDOW_SIZE 35
 
-#define WINDOW_SIZE 25
+#define RPM 68
+#define V_NOM 7.4
+#define PI M_PI
+#define KV  RPM/V_NOM
+#define KV_SI  (KV * ((2*PI)/60))  // radians/second/volt
+#define KT  (1/KV_SI)
+
+
+#define DT_SPEC_AND_COMMA(node_id, prop, idx) \
+	ADC_DT_SPEC_GET_BY_IDX(node_id, idx),
+
+#if !DT_NODE_EXISTS(DT_PATH(zephyr_user)) || \
+	!DT_NODE_HAS_PROP(DT_PATH(zephyr_user), io_channels)
+#error "No suitable devicetree overlay specified"
+#endif
+
+
+float InaSamples[INA_WINDOW], OutputCurrent[DATA_SAMPLES]; // measured position values for case 3
+
 
 static const struct pwm_dt_spec pwm_28 = PWM_DT_SPEC_GET(DT_NODELABEL(pin28));
 static uint32_t min_pulse_28 = DT_PROP(DT_NODELABEL(pin28), min_pulse);
@@ -30,41 +50,28 @@ static uint32_t min_pulse_29 = DT_PROP(DT_NODELABEL(pin29), min_pulse);
 // static uint32_t max_pulse_29 = DT_PROP(DT_NODELABEL(pin29), max_pulse);
 
 
-#if !DT_NODE_EXISTS(DT_PATH(zephyr_user)) || \
-	!DT_NODE_HAS_PROP(DT_PATH(zephyr_user), io_channels)
-#error "No suitable devicetree overlay specified"
-#endif
-
-#define DT_SPEC_AND_COMMA(node_id, prop, idx) \
-	ADC_DT_SPEC_GET_BY_IDX(node_id, idx),
-
-enum direction {
-	DOWN,
-	UP,
-};
-
-
-K_FIFO_DEFINE(printk_fifo);
-
-K_MUTEX_DEFINE(mpu_sensor_mutex);
-K_MUTEX_DEFINE(ina_sensor_mutex);
-K_MUTEX_DEFINE(pot_adc_mutex);
-
-
 struct mpu_6050_data mpu_data;
 struct ina_219_data ina_data;
 const struct device *mpu_dev, *ina_dev;
 
-volatile static float angle = 170.0;
+volatile static float angle = 130.0;
 volatile static float commanded_current = 0.0;
-static volatile float Kp = 0.13, Ki = 0.025;
-static volatile float Kp_pos = 1.3, Ki_pos = 0.09, Kd_pos = 1.0;
-// static volatile float Kp = 0.15, Ki = 0.02; ///// WORKED WELl
-// static volatile float Kp_pos = 0.9, Ki_pos = 0.09, Kd_pos = 0.5;  WORKED FOR POSITION ONLY CONTROLLER
+volatile static float accel_profile;
 
-unsigned int pwm_val = 0;
+// static volatile float Kp = 0.2, Ki = 0.00;
+// static volatile float Kp_pos = 1.3, Ki_pos = 0.05, Kd_pos = 0.6;
+
+static volatile float Kp = 0.030, Ki = 0.025;
+// static volatile float Kp = 0.022, Ki = 0.025;
+static volatile float Kp_pos = 1.4, Ki_pos = 0.08, Kd_pos = 1.00;
+
+
+
+unsigned int pwm_val;
 int dir_flag = 1;
 int data_count = 0;
+static int counter = 0;
+
 
 /* Data of ADC io-channels specified in devicetree. */
 static const struct adc_dt_spec adc_channels[] = {
@@ -77,6 +84,19 @@ uint16_t buf;
 float filteredEncoderReading = 0.0;
 
 
+
+
+
+// Define mutex for sensor readings
+K_FIFO_DEFINE(printk_fifo);
+K_SEM_DEFINE(start_sem, 0, 1);
+K_MUTEX_DEFINE(mpu_sensor_mutex);
+K_MUTEX_DEFINE(ina_sensor_mutex);
+K_MUTEX_DEFINE(pot_adc_mutex);
+
+float absoluteValue(float number) {
+    return (number < 0) ? -number : number;
+}
 
 const struct device * sensors_init(const char* sensor_compat)
 {
@@ -110,60 +130,97 @@ const struct device * sensors_init(const char* sensor_compat)
 void mpu_sensor_read(void)
 {
     const char *sensor_name = "mpu";
-    mpu_dev = sensors_init(sensor_name);
-    
+    mpu_dev = sensors_init(sensor_name);    
+    k_sleep(K_SECONDS(2));
     while (1) { 
 		int rc = process_mpu6050(mpu_dev, &mpu_data);
 		
 		if (rc != 0) {
 			break;
 		}
-		// k_msleep(500);
+
+        // if(data_count != IMU_WINDOW)
+        // {
+        //     // printk("Collecting User Data...\n");
+        //     // k_mutex_lock(&mpu_sensor_mutex, K_FOREVER);
+        //     // ImuSamples[data_count] = sensor_value_to_double(&mpu_data.accelerometer[0]);
+        //     // data_count++;
+        //     // k_mutex_unlock(&mpu_sensor_mutex);
+
+        //     printf("%f\n",
+        //     now_str(),
+        //     sensor_value_to_double(&mpu_data.accelerometer[0]));
+
+        //     data_count++;
+        // }
+
+		k_sleep(K_MSEC(10)); 
 	}
 }
 
-
 void ina_sensor_read(void)
 {
+    // Runs at 200 Hz
     const char *sensor_name = "ina";
     ina_dev = sensors_init(sensor_name);
+
     while (1) { 
+
 		int rc = process_ina219(ina_dev, &ina_data);
 		
 		if (rc != 0) {
 			break;
 		}
-        k_sleep(K_MSEC(1));  
+                // if (counter < INA_WINDOW)
+        // {
+        //     InaSamples[counter] = sensor_value_to_double(&ina_data.current);
+        //     // printf("%f\n", sensor_value_to_double(&ina_data.current));
+        // }
+        // else
+        // {
+        //     k_sem_give(&start_sem);
+        // }
+        // counter++;
+
 	}
 }
 
 void uart_out(void)
 {
-    struct printk_data_t *rx_data;
-	while (1) {
-		rx_data = k_fifo_get(&printk_fifo,
-							   K_FOREVER);
-        printf("[%s]:\n"
-            "accel %f %f %f m/s/s\n"
-            "  gyro  %f %f %f rad/s\n",
-            now_str(),
-        //    sensor_value_to_double(&temperature),
-            sensor_value_to_double(rx_data->accelerometer),
-            sensor_value_to_double(rx_data->accelerometer+1),
-            sensor_value_to_double(rx_data->accelerometer+2),
-            sensor_value_to_double(rx_data->gyro),
-            sensor_value_to_double(rx_data->gyro+1),
-            sensor_value_to_double(rx_data->gyro+2));
-		k_free(rx_data);
-	}
+    while(1)
+    {
+        k_sem_take(&start_sem, K_FOREVER);  // Wait for the signal to start
+
+        for(int i = 0; i< INA_WINDOW; i++)
+        {
+            printf("%f\n", InaSamples[i]);
+            k_msleep(5);
+        }
+        break;
+    }
+    // struct printk_data_t *rx_data;
+	// while (1) {
+	// 	rx_data = k_fifo_get(&printk_fifo,
+	// 						   K_FOREVER);
+    //     printf("[%s]:\n"
+    //         "accel %f %f %f m/s/s\n"
+    //         "  gyro  %f %f %f rad/s\n",
+    //         now_str(),
+    //     //    sensor_value_to_double(&temperature),
+    //         sensor_value_to_double(rx_data->accelerometer),
+    //         sensor_value_to_double(rx_data->accelerometer+1),
+    //         sensor_value_to_double(rx_data->accelerometer+2),
+    //         sensor_value_to_double(rx_data->gyro),
+    //         sensor_value_to_double(rx_data->gyro+1),
+    //         sensor_value_to_double(rx_data->gyro+2));
+	// 	k_free(rx_data);
+	// }
 }
 
 void motor_control(void)
 {
-
-	enum direction dir = UP;
 	int ret;
-
+    float output_torque;
 	if (!device_is_ready(pwm_28.dev)) {
 		printf("Error: PWM device %s is not ready\n", pwm_28.dev->name);
 	}
@@ -182,34 +239,42 @@ void motor_control(void)
 		printf("Error %d: failed to set pulse width\n", ret);
 	}
     
-    double accel_z;
-    // k_sleep(K_SECONDS(5));
+    // double scale = 20.0;
+    // int dir = 1;
+    k_sleep(K_SECONDS(5));
+    
 
 	while (1) {
+        // if (pwm_val == 0.0)
+        // {
+        //     ret = pwm_set_pulse_dt(&pwm_28,min_pulse_28);
+        //     if (ret < 0) {
+        //         printk("Error %d: failed to set 0 pulse width for 29\n", ret);
+        //         break;
+        //     }
 
-        // k_mutex_lock(&mpu_sensor_mutex, K_FOREVER);
+        //     k_msleep(50);
+        // }
+        // else
+        // {
+        //     ret = pwm_set_pulse_dt(&pwm_28, pwm_val);
+        //     if (ret < 0) {
+        //         printk("Error %d: failed to set pulse width for pin 28\n", ret);
+        //         break;
+        //     }
+        // }
+
+
+
+
         // k_mutex_lock(&ina_sensor_mutex, K_FOREVER);
-
-
-
-        // printf("[%s]:\n"
-        // "accel %f m/s/s\n",
-        // now_str(),
-        // sensor_value_to_double(&mpu_data.accelerometer[2]));
-
-
-        // printf("Current: %f [A]\n",sensor_value_to_double(&ina_data.current));
-        
-        // accel_z = sensor_value_to_double(&mpu_data.accelerometer[2]);
-
-        // printk("%"PRId32 "\n", (int32_t)buf);
-
-
-        // k_mutex_unlock(&mpu_sensor_mutex);
+        // float current = sensor_value_to_double(&ina_data.current);
+        //  printk("%f\n", current);  
         // k_mutex_unlock(&ina_sensor_mutex);
 
-    
-    
+        // output_torque = -current * KT;
+        // printk("%f\n", output_torque);  
+
         if(dir_flag != 1)
         {
             ret = pwm_set_pulse_dt(&pwm_28, min_pulse_28);
@@ -247,7 +312,6 @@ void motor_control(void)
         k_sleep(K_MSEC(1));  
     }
 }
-
 
 void read_pot_adc(void)
 {
@@ -304,40 +368,41 @@ void read_pot_adc(void)
 	}
 }
 
-
 void current_control(void)
 {
     static volatile float eint = 0;
+
     k_sleep(K_SECONDS(5));
     while(1)
     {
-        // static volatile float eint = 0;
-        float ref_current = commanded_current;
+        if (counter == DATA_SAMPLES)
+        {
+            pwm_val = 0.0;
+            printk("DONE\n");
+            break;
+        }
 
-    
+        float ref_current = commanded_current * 1000.0;
+
         k_mutex_lock(&ina_sensor_mutex, K_FOREVER);
-
-        float adcval = sensor_value_to_double(&ina_data.current) * 1000;
-        // printk("REF %f  ADC %f \n", ref_current, adcval);
-
+        float adcval = sensor_value_to_double(&ina_data.current) * 1000.0;
+        //  printk("%f\n", adcval);  
         k_mutex_unlock(&ina_sensor_mutex);
 
-        float error = -(ref_current - adcval);
-        // printk("ERROR:    %f\n", error);
-       
+        float error = (ref_current - adcval);
 
-        eint = eint + error;
+        float u = Kp*error;
 
-        if (eint > 500)
+
+        if (accel_profile > 0.0)
         {
-            eint = 500;
+            dir_flag = 1;
         }
-        if(eint < -500)
+        else
         {
-            eint = -500;
+            dir_flag = -1;
         }
 
-        float u = Kp*error + Ki*eint;
 
         if (u > 100.0)
         {
@@ -348,13 +413,31 @@ void current_control(void)
           u = -100.0;
         }
 
-        if (u > 0.0) {
-            dir_flag = 1;
-            pwm_val = ((u)/100 * SPEED);
+        if (u >= 0.0) {
+            // dir_flag = 1;
+            pwm_val = (u/100* SPEED);
+
         } else {
-            dir_flag = -1;
-            pwm_val = ((u)/-100 * SPEED);
+            // dir_flag = -1;
+            pwm_val = (-u/100 * SPEED);
         }
+
+
+      
+
+        float output_torque = (-adcval/1000.0) * KT;
+        float input_torque = (ref_current/1000.0) * KT;
+        printk("%f %f\n", input_torque, output_torque);  
+
+
+        // float output_torque = (-adcval/1000.0) * KT;
+        // float input_torque = (ref_current/1000.0) * KT;
+        // printk("%f %f\n", ref_current/1000.0, -adcval/1000.0);  
+
+
+        // printk("CURRENT COMMAND CC:  %f PWM VAL: %f\n", u, pwm_val);    
+        // printk("%d\n", pwm_val);   
+        // printk("%f\n", u);  
 
         k_sleep(K_MSEC(1));  
     }
@@ -370,20 +453,17 @@ void position_control(void)
 
     while(1)
     {
-
         k_mutex_lock(&pot_adc_mutex, K_FOREVER);
 
-       
         float encoder = filteredEncoderReading; // get the encoder value
 
-
         float actual_angle = encoder * (220.0/4095.0);
-        printk("ACTUAL ANGLE: %f\n", actual_angle);
+        // printk("ACTUAL ANGLE: %f\n", actual_angle);
 
         k_mutex_unlock(&pot_adc_mutex);
 
         float pos_error = (angle - actual_angle);
-
+        
         eint_pos = eint_pos + pos_error;
 
         if (eint_pos > 500)
@@ -395,40 +475,50 @@ void position_control(void)
             eint_pos = -500;
         }
 
+        float pwm_pos_i = Ki_pos*eint_pos;
+
+        // if (pwm_pos_i > 170)
+        // {
+        //     pwm_pos_i = 170;
+        // }
+        // if(pwm_pos_i < -170)
+        // {
+        //     pwm_pos_i = -170;
+        // }
+
         ed_pos = (pos_error - eprevious_pos) / 0.005;
         
-        float u = Kp_pos*pos_error + Ki_pos*eint_pos + Kd_pos*ed_pos; 
+        float u = Kp_pos*pos_error + pwm_pos_i + Kd_pos*ed_pos; 
 
         commanded_current = u;
         eprevious_pos = pos_error;
 
-
-        // if (commanded_current > 100.0)
-        // {
-        //   commanded_current = 100.0;
-        // }
-        // if (commanded_current < -100.0)
-        // {
-        //   commanded_current = -100.0;
-        // }
+        // printk("POS ERR: %f ED ERROR: %f COMMAND %f\n", Kp_pos*pos_error, pwm_pos_i, u );
 
         
-        // if (commanded_current < 0.0) {
-        //     dir_flag = 1;
-        //     pwm_val = ((commanded_current/-100)*SPEED);
-        // } else if (commanded_current > 0.0){
-        //     dir_flag = -1;
-        //     pwm_val = ((commanded_current/100)*SPEED);
-        // }
-
-
-        // printk("POS ERR: %f ED ERROR: %f COMMAND %f\n", pos_error, ed_pos, u );
-
         k_sleep(K_MSEC(5));
     }
 }
 
+void torque_profile_signals(void)
+{
+    k_sleep(K_SECONDS(5));
 
+    while(1)
+    {
+        for(int i=0; i < DATA_SAMPLES-2; i++)
+        {
+            float torque = Torque_Profile_05[i];
+            commanded_current = torque / KT;
+
+            accel_profile = Accel_Profile_05[i];
+            counter++;
+            k_sleep(K_MSEC(10));
+        }
+        // printk("DESIRED %f\n", commanded_current);  
+        break;
+    }
+}
 
 K_THREAD_DEFINE(motor_id, STACKSIZE, motor_control, NULL, NULL, NULL,
 PRIORITY, 0, 0);
@@ -436,18 +526,24 @@ PRIORITY, 0, 0);
 K_THREAD_DEFINE(ina219_id, STACKSIZE, ina_sensor_read, NULL, NULL, NULL,
 PRIORITY, 0, 0);
 
-
 // K_THREAD_DEFINE(mpu6050_id, STACKSIZE, mpu_sensor_read, NULL, NULL, NULL,
 // PRIORITY, 0, 0);
 
-K_THREAD_DEFINE(pot_id, STACKSIZE, read_pot_adc, NULL, NULL, NULL,
-PRIORITY, 0, 0);
 
-K_THREAD_DEFINE(pos_control_id, STACKSIZE, position_control, NULL, NULL, NULL,
-PRIORITY, 0, 0);
+// K_THREAD_DEFINE(pot_id, STACKSIZE, read_pot_adc, NULL, NULL, NULL,
+// PRIORITY, 0, 0);
+
+// K_THREAD_DEFINE(pos_control_id, STACKSIZE, position_control, NULL, NULL, NULL,
+// PRIORITY, 0, 0);
 
 K_THREAD_DEFINE(current_control_id, STACKSIZE, current_control, NULL, NULL, NULL,
 PRIORITY, 0, 0);
+
+K_THREAD_DEFINE(torque_profile, STACKSIZE, torque_profile_signals, NULL, NULL, NULL,
+PRIORITY, 0, 0);
+
+// K_THREAD_DEFINE(data_send, STACKSIZE, uart_out, NULL, NULL, NULL,
+// PRIORITY, 0, 0);
 
 
 
