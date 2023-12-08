@@ -26,16 +26,6 @@ int process_mpu6050(const struct device *dev, struct mpu_6050_data *mpu_sensor_d
 
 	int rc = sensor_sample_fetch(dev);
 
-    //// FOR FIFO  ////
-	// if (rc == 0) {
-	// 	rc = sensor_channel_get(dev, SENSOR_CHAN_ACCEL_XYZ,
-	// 				tx->accelerometer);
-	// }
-	// if (rc == 0) {
-	// 	rc = sensor_channel_get(dev, SENSOR_CHAN_GYRO_XYZ,
-	// 				tx->gyro);
-	// }
-
     extern struct k_mutex mpu_sensor_mutex; 
 
     k_mutex_lock(&mpu_sensor_mutex, K_FOREVER);
@@ -52,16 +42,6 @@ int process_mpu6050(const struct device *dev, struct mpu_6050_data *mpu_sensor_d
 
     k_mutex_unlock(&mpu_sensor_mutex);
 
-    // extern struct k_fifo printk_fifo;
-
-    // size_t size = sizeof(struct printk_data_t);
-    // char *mem_ptr = k_malloc(size);
-    // __ASSERT_NO_MSG(mem_ptr != 0);
-
-    // memcpy(mem_ptr, tx, size);
-    
-
-    // k_fifo_put(&printk_fifo, mem_ptr);
 
 	if (rc == 0) {
 	} else {

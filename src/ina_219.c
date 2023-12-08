@@ -11,8 +11,7 @@ int process_ina219(const struct device *dev, struct ina_219_data *ina_sensor_dat
     extern struct k_mutex ina_sensor_mutex; 
 
     k_mutex_lock(&ina_sensor_mutex, K_FOREVER);
-    // sensor_channel_get(dev, SENSOR_CHAN_VOLTAGE, &ina_sensor_data->vbus);
-    // sensor_channel_get(dev, SENSOR_CHAN_POWER, &ina_sensor_data->power);
+
     sensor_channel_get(dev, SENSOR_CHAN_CURRENT, &ina_sensor_data->current);
 
     k_mutex_unlock(&ina_sensor_mutex);
