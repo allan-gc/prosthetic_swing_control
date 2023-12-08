@@ -1,16 +1,16 @@
 / {
 	pin28: pin28 {
 		compatible = "pwm-servo";
-		pwms = <&flexpwm3_pwm1 1 PWM_KHZ(3) PWM_POLARITY_NORMAL>;  
+		pwms = <&flexpwm3_pwm1 1 PWM_KHZ(20) PWM_POLARITY_NORMAL>;  
 		min-pulse = <PWM_NSEC(0)>; /* Does not actually affect physical min/max. Max is set by the period in the pwms phandle. These are just inits for min/max vars */
-		max-pulse = <PWM_KHZ(3)>;
+		max-pulse = <PWM_KHZ(20)>;
 	};
 
 	pin29: pin29 {
 		compatible = "pwm-servo";
-		pwms = <&flexpwm3_pwm1 0 PWM_KHZ(3) PWM_POLARITY_NORMAL>;  
+		pwms = <&flexpwm3_pwm1 0 PWM_KHZ(20) PWM_POLARITY_NORMAL>;  
 		min-pulse = <PWM_NSEC(0)>;
-		max-pulse = <PWM_KHZ(3)>;
+		max-pulse = <PWM_KHZ(20)>;
 	};
 
 	zephyr,user {

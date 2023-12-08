@@ -1,4 +1,8 @@
-# Gait-Simulating Prosthetic Elbow
+# Torque Controlled Prosthetic Elbow
+
+## Overview 
+
+This repository contains a full Zephyr application used with a Teensy 4.1 for controlling a motorized prosthetic elbow. The system implements a step detection algorithm and a PI torque control system to output a corresponding arm swing. 
 
 ## Teensy 4.1 
 

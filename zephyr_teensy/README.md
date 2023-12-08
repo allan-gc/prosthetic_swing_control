@@ -1,2 +1,0 @@
-### Teensy 4.1 With Zephyr RTOS
-The source files above make use of the provided samples from the Zephyr RTOS and modify them to allow for serial communication through the connected USB. More info, along with links to the original Zephyr examples, can be found in each directory.
